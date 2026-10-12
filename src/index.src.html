@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EncryptionTool</title>
+<style>
+  /* Layout: one centered column, two tabs (Encrypt / Decrypt), each with two upload slots and one action button. */
+  :root {
+    --bg: #f3f4f2;
+    --surface: #ffffff;
+    --fg: #1b2420;
+    --muted: #5d6963;
+    --line: #d6dbd7;
+    --accent: #1c6b57;
+    --accent-fg: #ffffff;
+    --accent-soft: #dcefe8;
+    --danger: #a3341f;
+    --danger-soft: #f8e3de;
+    --ok: #1c6b57;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121715; --surface: #1a211e; --fg: #e6ece8; --muted: #9aa7a0; --line: #2f3a35;
+      --accent: #5cc9a7; --accent-fg: #0c1512; --accent-soft: #21332c;
+      --danger: #f08a73; --danger-soft: #3a211c; --ok: #5cc9a7;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121715; --surface: #1a211e; --fg: #e6ece8; --muted: #9aa7a0; --line: #2f3a35;
+    --accent: #5cc9a7; --accent-fg: #0c1512; --accent-soft: #21332c;
+    --danger: #f08a73; --danger-soft: #3a211c; --ok: #5cc9a7;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding-inline: 16px;
+    padding-block: 40px 56px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.5 var(--font);
+  }
+  main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; text-wrap: balance; }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 52ch; }
+
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; padding: 4px; gap: 4px; background: var(--surface); }
+  .tab { appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 9px 12px; border-radius: 5px; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+  .tab:focus-visible, .drop:focus-visible, .go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+  .slot { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .slot-label { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .slot-label span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+  .drop { display: flex; align-items: center; gap: 12px; border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px 16px; cursor: pointer; min-width: 0; background: var(--bg); transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop.filled { border-style: solid; border-color: var(--accent); }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .drop-main { min-width: 0; flex: 1; }
+  .drop-title { font-weight: 600; overflow-wrap: anywhere; }
+  .drop-sub { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .drop-action { font-size: 0.85rem; color: var(--accent); font-weight: 600; white-space: nowrap; }
+
+  .field { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .go { appearance: none; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 700; padding: 12px 18px; cursor: pointer; }
+  .go:disabled { opacity: .4; cursor: not-allowed; }
+
+  .msg { border-radius: 8px; padding: 10px 14px; font-size: 0.92rem; overflow-wrap: anywhere; }
+  .msg[hidden] { display: none; }
+  .msg.ok { background: var(--accent-soft); color: var(--ok); }
+  .msg.err { background: var(--danger-soft); color: var(--danger); }
+
+  .notes { color: var(--muted); font-size: 0.85rem; display: flex; flex-direction: column; gap: 6px; }
+  .notes p { margin: 0; max-width: 62ch; }
+  code { font-family: var(--mono); font-size: 0.92em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>EncryptionTool</h1>
+    <p>Encrypt any file with a public key and decrypt it with the matching private key. Everything happens in this browser tab. Nothing is uploaded.</p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Mode">
+    <button class="tab" role="tab" id="tab-enc" aria-selected="true" aria-controls="panel-enc">Encrypt</button>
+    <button class="tab" role="tab" id="tab-dec" aria-selected="false" aria-controls="panel-dec">Decrypt</button>
+  </div>
+
+  <section class="panel" id="panel-enc" role="tabpanel" aria-labelledby="tab-enc">
+    <div class="slot">
+      <div class="slot-label">1. Public key <span>(RSA .pem or PGP .asc)</span></div>
+      <label class="drop" id="enc-key-drop" tabindex="0">
+        <input type="file" id="enc-key" accept=".pem,.pub,.key,.crt,.asc,.gpg,.pgp,text/plain">
+        <div class="drop-main"><div class="drop-title">Choose or drop your public key</div><div class="drop-sub">RSA PEM or PGP key</div></div>
+        <span class="drop-action">Browse</span>
+      </label>
+    </div>
+    <div class="slot">
+      <div class="slot-label">2. File to encrypt <span>(any format, up to 10 MB)</span></div>
+      <label class="drop" id="enc-file-drop" tabindex="0">
+        <input type="file" id="enc-file">
+        <div class="drop-main"><div class="drop-title">Choose or drop a file</div><div class="drop-sub">Any type</div></div>
+        <span class="drop-action">Browse</span>
+      </label>
+    </div>
+    <button class="go" id="enc-go" disabled>Encrypt and download</button>
+    <div class="msg" id="enc-msg" role="status" hidden></div>
+  </section>
+
+  <section class="panel" id="panel-dec" role="tabpanel" aria-labelledby="tab-dec" hidden>
+    <div class="slot">
+      <div class="slot-label">1. Private key <span>(RSA .pem or PGP .asc)</span></div>
+      <label class="drop" id="dec-key-drop" tabindex="0">
+        <input type="file" id="dec-key" accept=".pem,.key,.asc,.gpg,.pgp,text/plain">
+        <div class="drop-main"><div class="drop-title">Choose or drop your private key</div><div class="drop-sub">RSA PEM or PGP key</div></div>
+        <span class="drop-action">Browse</span>
+      </label>
+    </div>
+    <div class="slot">
+      <div class="slot-label">2. File to decrypt</div>
+      <label class="drop" id="dec-file-drop" tabindex="0">
+        <input type="file" id="dec-file">
+        <div class="drop-main"><div class="drop-title">Choose or drop the encrypted file</div><div class="drop-sub">e.g. report_Encrypted.pdf</div></div>
+        <span class="drop-action">Browse</span>
+      </label>
+    </div>
+    <div class="slot">
+      <label class="slot-label" for="dec-pass">Key passphrase <span>(only if your private key has one)</span></label>
+      <input class="field" type="password" id="dec-pass" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="go" id="dec-go" disabled>Decrypt and download</button>
+    <div class="msg" id="dec-msg" role="status" hidden></div>
+  </section>
+
+  <div class="notes">
+    <p>With a PGP key (.asc) the output is a standard OpenPGP message, so GnuPG and other PGP tools can decrypt it. With an RSA PEM key, each file is encrypted with a fresh AES-256-GCM key that is locked with your public key (RSA-OAEP, SHA-256), and only this tool decrypts it.</p>
+    <p>Keep your private key safe. A file cannot be recovered without it.</p>
+  </div>
+</main>
+
+<script>/*OPENPGP*/</script>
+<script>
+(() => {
+  'use strict';
+  const MAX_BYTES = 10 * 1024 * 1024;
+  const MAGIC = [0x46, 0x45, 0x4e, 0x43]; // "FENC"
+  const VERSION = 1;
+  const IV_LEN = 12;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  /* ---------- byte helpers ---------- */
+  const concat = (...parts) => {
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  };
+  const u16 = n => new Uint8Array([(n >> 8) & 255, n & 255]);
+  const fmtSize = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(2) + ' MB';
+
+  /* ---------- PEM / DER ---------- */
+  const derLen = n => {
+    if (n < 128) return [n];
+    const b = [];
+    while (n > 0) { b.unshift(n & 255); n >>= 8; }
+    return [0x80 | b.length, ...b];
+  };
+  const der = (tag, content) => concat(new Uint8Array([tag, ...derLen(content.length)]), content);
+  const RSA_ALG_ID = new Uint8Array([0x30,0x0d,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x01,0x05,0x00]);
+  const pkcs1PubToSpki = p => der(0x30, concat(RSA_ALG_ID, der(0x03, concat(new Uint8Array([0]), p))));
+  const pkcs1PrivToPkcs8 = p => der(0x30, concat(new Uint8Array([2, 1, 0]), RSA_ALG_ID, der(0x04, p)));
+
+  function parsePem(text, kind) {
+    const m = /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----/.exec(text);
+    if (!m) throw new Error('This file is not a PEM key. It should start with "-----BEGIN ...-----".');
+    const label = m[1];
+    if (/ENCRYPTED/.test(label) || /Proc-Type:\s*4,ENCRYPTED/.test(m[2])) {
+      throw new Error('This private key is password protected. Remove the password first, then try again.');
+    }
+    const body = m[2].replace(/^[A-Za-z-]+:.*$/gm, '').replace(/\s+/g, '');
+    let bin;
+    try { bin = atob(body); } catch { throw new Error('The key contents are damaged and could not be read.'); }
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    if (kind === 'public') {
+      if (label === 'PUBLIC KEY') return bytes;
+      if (label === 'RSA PUBLIC KEY') return pkcs1PubToSpki(bytes);
+      if (/PRIVATE KEY/.test(label)) throw new Error('This is a private key. Encrypting needs the public key.');
+      if (label === 'CERTIFICATE') throw new Error('This is a certificate. Upload the public key (PEM) instead.');
+    } else {
+      if (label === 'PRIVATE KEY') return bytes;
+      if (label === 'RSA PRIVATE KEY') return pkcs1PrivToPkcs8(bytes);
+      if (/PUBLIC KEY/.test(label)) throw new Error('This is a public key. Decrypting needs the private key.');
+    }
+    throw new Error('Unsupported key type "' + label + '". Use an RSA key in PEM format.');
+  }
+
+  /* ---------- names ---------- */
+  const tagName = (name, tag) => {
+    const dot = name.lastIndexOf('.');
+    return dot > 0 ? name.slice(0, dot) + tag + name.slice(dot) : name + tag;
+  };
+  const isPgp = t => /-----BEGIN PGP /.test(t);
+  const pgpArmor = t => t.slice(t.indexOf('-----BEGIN PGP '));
+
+  /* ---------- PGP (OpenPGP.js) ---------- */
+  // Older PGP keys carry no key-usage flags; GnuPG accepts them, so allow them here too.
+  const PGP_CFG = { allowMissingKeyFlags: true };
+
+  async function encryptPgp(keyText, file) {
+    if (/BEGIN PGP PRIVATE KEY BLOCK/.test(keyText)) throw new Error('This is a private key. Encrypting needs the public key.');
+    if (!/BEGIN PGP PUBLIC KEY BLOCK/.test(keyText)) throw new Error('This is not a PGP public key.');
+    let key;
+    try { key = await openpgp.readKey({ armoredKey: pgpArmor(keyText) }); }
+    catch { throw new Error('Could not read this PGP public key. The file may be damaged.'); }
+    const message = await openpgp.createMessage({ binary: new Uint8Array(await file.arrayBuffer()), filename: file.name });
+    let out;
+    try { out = await openpgp.encrypt({ message, encryptionKeys: key, format: 'binary', config: PGP_CFG }); }
+    catch (e) { throw new Error('This key cannot be used to encrypt. ' + (e && e.message ? e.message.replace(/^Error encrypting message: /, '') : '')); }
+    return { bytes: out, name: tagName(file.name, '_Encrypted') };
+  }
+
+  async function decryptPgp(keyText, file, ctx) {
+    if (/BEGIN PGP PUBLIC KEY BLOCK/.test(keyText)) throw new Error('This is a public key. Decrypting needs the private key.');
+    let key;
+    try { key = await openpgp.readPrivateKey({ armoredKey: pgpArmor(keyText) }); }
+    catch { throw new Error('Could not read this PGP private key. The file may be damaged.'); }
+    if (!key.isDecrypted()) {
+      const pass = ctx.passphrase();
+      if (!pass) throw new Error('This private key has a passphrase. Type it in the passphrase box and try again.');
+      try { key = await openpgp.decryptKey({ privateKey: key, passphrase: pass }); }
+      catch { throw new Error('The passphrase is wrong for this private key.'); }
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const armored = dec.decode(bytes.slice(0, 40)).includes('-----BEGIN PGP MESSAGE');
+    let message;
+    try {
+      message = armored ? await openpgp.readMessage({ armoredMessage: dec.decode(bytes) }) : await openpgp.readMessage({ binaryMessage: bytes });
+    } catch { throw new Error('This is not a PGP encrypted file.'); }
+    let res;
+    try { res = await openpgp.decrypt({ message, decryptionKeys: key, format: 'binary', config: PGP_CFG }); }
+    catch { throw new Error('This private key does not match the file, or the file is damaged.'); }
+    const base = (res.filename || file.name.replace(/\.(pgp|gpg|asc)$/i, '').replace(/_Encrypted(?=\.[^.]*$|$)/, ''))
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_') || 'file';
+    return { bytes: res.data, name: tagName(base, '_Decrypted') };
+  }
+
+  /* ---------- RSA PEM (own format) ---------- */
+  async function encryptFile(pubText, file) {
+    if (isPgp(pubText)) return encryptPgp(pubText, file);
+    const spki = parsePem(pubText, 'public');
+    let pub;
+    try {
+      pub = await crypto.subtle.importKey('spki', spki, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+    } catch { throw new Error('Could not read this public key. Only RSA keys are supported.'); }
+
+    const nameBytes = enc.encode(file.name);
+    if (nameBytes.length > 65535) throw new Error('The file name is too long.');
+    const plain = concat(u16(nameBytes.length), nameBytes, new Uint8Array(await file.arrayBuffer()));
+
+    const aes = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+    const raw = await crypto.subtle.exportKey('raw', aes);
+    let wrapped;
+    try {
+      wrapped = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw));
+    } catch { throw new Error('This RSA key is too small to use. Use a key of 2048 bits or more.'); }
+    const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+    const header = concat(new Uint8Array([...MAGIC, VERSION]), u16(wrapped.length), wrapped, iv);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: header }, aes, plain));
+    const dot = file.name.lastIndexOf('.');
+    const outName = dot > 0 ? file.name.slice(0, dot) + '_Encrypted' + file.name.slice(dot) : file.name + '_Encrypted';
+    return { bytes: concat(header, ct), name: outName };
+  }
+
+  async function decryptFile(privText, file, ctx) {
+    if (isPgp(privText)) return decryptPgp(privText, file, ctx);
+    const pkcs8 = parsePem(privText, 'private');
+    let priv;
+    try {
+      priv = await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+    } catch { throw new Error('Could not read this private key. Only RSA keys are supported.'); }
+
+    const data = new Uint8Array(await file.arrayBuffer());
+    const badFile = new Error('This is not a file encrypted by this tool.');
+    if (data.length < 7 + IV_LEN + 16 || MAGIC.some((b, i) => data[i] !== b)) throw badFile;
+    if (data[4] !== VERSION) throw new Error('This file uses a newer format than this tool supports.');
+    const keyLen = (data[5] << 8) | data[6];
+    const headerEnd = 7 + keyLen + IV_LEN;
+    if (data.length < headerEnd + 16) throw badFile;
+    const wrapped = data.slice(7, 7 + keyLen);
+    const iv = data.slice(7 + keyLen, headerEnd);
+    const header = data.slice(0, headerEnd);
+
+    let rawKey;
+    try {
+      rawKey = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, priv, wrapped);
+    } catch { throw new Error('This private key does not match the key the file was encrypted with.'); }
+    const aes = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt']);
+    let plain;
+    try {
+      plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: header }, aes, data.slice(headerEnd)));
+    } catch { throw new Error('The file is damaged or has been modified, so it cannot be decrypted.'); }
+    const nameLen = (plain[0] << 8) | plain[1];
+    const orig = dec.decode(plain.slice(2, 2 + nameLen)).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_') || 'file';
+    const dot = orig.lastIndexOf('.');
+    const name = dot > 0 ? orig.slice(0, dot) + '_Decrypted' + orig.slice(dot) : orig + '_Decrypted';
+    return { bytes: plain.slice(2 + nameLen), name };
+  }
+
+  /* ---------- download ---------- */
+  function download(bytes, name) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  /* ---------- UI ---------- */
+  function setupMode(prefix, { maxBytes, work, doneText }, ctx) {
+    const state = { key: null, file: null };
+    const go = document.getElementById(prefix + '-go');
+    const msg = document.getElementById(prefix + '-msg');
+
+    const show = (kind, text) => { msg.className = 'msg ' + kind; msg.textContent = text; msg.hidden = false; };
+    const refresh = () => { go.disabled = !(state.key && state.file); };
+
+    function bindDrop(slot, onPick) {
+      const drop = document.getElementById(`${prefix}-${slot}-drop`);
+      const input = document.getElementById(`${prefix}-${slot}`);
+      const title = drop.querySelector('.drop-title');
+      const sub = drop.querySelector('.drop-sub');
+      const action = drop.querySelector('.drop-action');
+      const initial = { title: title.textContent, sub: sub.textContent };
+
+      const pick = f => {
+        msg.hidden = true;
+        if (!f) return;
+        if (!onPick(f)) return;
+        drop.classList.add('filled');
+        title.textContent = f.name;
+        sub.textContent = fmtSize(f.size);
+        action.textContent = 'Change';
+        refresh();
+      };
+      const clear = () => {
+        drop.classList.remove('filled');
+        title.textContent = initial.title; sub.textContent = initial.sub; action.textContent = 'Browse';
+      };
+      input.addEventListener('change', () => { pick(input.files[0]); input.value = ''; });
+      drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+      ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+      drop.addEventListener('drop', e => pick(e.dataTransfer.files[0]));
+      return clear;
+    }
+
+    bindDrop('key', f => {
+      if (f.size > 512 * 1024) { show('err', 'That file is too large to be a key.'); return false; }
+      state.key = f; return true;
+    });
+    bindDrop('file', f => {
+      if (f.size > maxBytes) { show('err', `That file is ${fmtSize(f.size)}. The limit is ${fmtSize(maxBytes)}.`); return false; }
+      if (f.size === 0) { show('err', 'That file is empty.'); return false; }
+      state.file = f; return true;
+    });
+
+    go.addEventListener('click', async () => {
+      go.disabled = true; msg.hidden = true;
+      const label = go.textContent; go.textContent = 'Working...';
+      try {
+        const keyText = await state.key.text();
+        const out = await work(keyText, state.file, ctx);
+        download(out.bytes, out.name);
+        show('ok', `${doneText} Saved as ${out.name} (${fmtSize(out.bytes.length)}).`);
+      } catch (e) {
+        show('err', e && e.message ? e.message : 'Something went wrong.');
+      } finally {
+        go.textContent = label; refresh();
+      }
+    });
+  }
+
+  if (!(window.crypto && crypto.subtle)) {
+    document.querySelectorAll('.go').forEach(b => { b.disabled = true; });
+    const m = document.getElementById('enc-msg');
+    m.className = 'msg err'; m.hidden = false;
+    m.textContent = 'This browser does not provide encryption support here. Open the page in a current version of Chrome, Edge, Firefox or Safari.';
+  }
+
+  setupMode('enc', { maxBytes: MAX_BYTES, work: encryptFile, doneText: 'File encrypted.' }, {});
+  setupMode('dec', { maxBytes: MAX_BYTES + 4096, work: decryptFile, doneText: 'File decrypted.' },
+    { passphrase: () => document.getElementById('dec-pass').value });
+
+  /* tabs */
+  const tabs = { enc: ['tab-enc', 'panel-enc'], dec: ['tab-dec', 'panel-dec'] };
+  Object.entries(tabs).forEach(([k, [t]]) => {
+    document.getElementById(t).addEventListener('click', () => {
+      Object.values(tabs).forEach(([tt, pp]) => {
+        const on = tt === t;
+        document.getElementById(tt).setAttribute('aria-selected', on);
+        document.getElementById(pp).hidden = !on;
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
